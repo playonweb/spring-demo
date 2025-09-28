@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Todo App</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script type="module" src="https://cdn.jsdelivr.net/npm/petite-vue@0.4.1/dist/petite-vue.es.js"></script>
+  <script type="module" src="https://cdn.jsdelivr.net/npm/@shoelace-style/shoelace@2.19.0/dist/shoelace.js"></script>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@shoelace-style/shoelace@2.19.0/dist/themes/light.css">
+</head>
+<body class="bg-gray-100 flex justify-center py-10">
+
+<div v-scope="TodoApp()" class="w-full max-w-md p-4 bg-white rounded-lg shadow">
+  <h1 class="text-2xl font-bold mb-4">Todos</h1>
+
+  <div class="flex gap-2 mb-4">
+    <input v-model="newText" @keyup.enter="addTodo" placeholder="New todo..." class="flex-1 border p-2 rounded">
+    <button @click="addTodo" class="bg-blue-500 text-white px-3 py-2 rounded">Add</button>
+  </div>
+
+  <ul>
+    <li v-for="todo in todos" :key="todo.id"
+        class="flex justify-between items-center border-b py-2">
+      <div v-if="editingTodo?.id !== todo.id" class="flex items-center gap-2 w-full">
+        <input type="checkbox" v-model="todo.completed" @change="updateTodo(todo)">
+        <span @dblclick="editTodo(todo)" :class="{ 'line-through text-gray-500': todo.completed }" class="flex-1 cursor-pointer hover:bg-gray-50 px-1 py-1 rounded">{{ todo.text }}</span>
+        <button @click="deleteTodo(todo.id)" class="text-red-500 hover:text-red-700">✕</button>
+      </div>
+      <div v-else class="w-full">
+        <input v-model="editingTodo.text" 
+               @blur="saveTodo" 
+               @keydown.enter="saveTodo" 
+               @keydown.escape="cancelEdit"
+               class="border p-1 rounded w-full focus:outline-none focus:ring-2 focus:ring-blue-500"
+               ref="editInput">
+      </div>
+    </li>
+  </ul>
+
+  <div class="mt-2 text-sm text-gray-500">
+    Double-click a todo to edit.
+  </div>
+</div>
+
+<script type="module">
+import { createApp } from "https://cdn.jsdelivr.net/npm/petite-vue@0.4.1/dist/petite-vue.es.js";
+
+function TodoApp() {
+  return {
+    todos: [],
+    newText: '',
+    editingTodo: null,
+    originalTodo: null,
+
+    async mounted() {
+      await this.loadTodos();
+    },
+
+    async loadTodos() {
+      try {
+        const response = await fetch('/api/todos');
+        if (!response.ok) throw new Error('Failed to fetch todos');
+        this.todos = await response.json();
+      } catch (error) {
+        console.error('Error loading todos:', error);
+        this.todos = [];
+      }
+    },
+
+    async addTodo() {
+      if (!this.newText.trim()) return;
+      try {
+        const res = await fetch('/api/todos', {
+          method: 'POST',
+          headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({ text: this.newText, completed: false })
+        });
+        const todo = await res.json();
+        this.todos.push(todo);
+        this.newText = '';
+      } catch (error) {
+        console.error('Error adding todo:', error);
+      }
+    },
+
+    async updateTodo(todo) {
+      try {
+        await fetch(`/api/todos/${todo.id}`, {
+          method: 'PATCH',
+          headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({ completed: todo.completed })
+        });
+      } catch (error) {
+        console.error('Error updating todo:', error);
+      }
+    },
+
+    async deleteTodo(id) {
+      try {
+        await fetch(`/api/todos/${id}`, { method: 'DELETE' });
+        this.todos = this.todos.filter(t => t.id !== id);
+      } catch (error) {
+        console.error('Error deleting todo:', error);
+      }
+    },
+
+    editTodo(todo) {
+      this.originalTodo = { ...todo };
+      this.editingTodo = { ...todo };
+      this.$nextTick(() => {
+        const input = this.$refs.editInput;
+        if (input) {
+          input.focus();
+          input.select();
+        }
+      });
+    },
+
+    async saveTodo() {
+      if (!this.editingTodo) return;
+      
+      const trimmedText = this.editingTodo.text.trim();
+      if (!trimmedText) {
+        await this.deleteTodo(this.editingTodo.id);
+        this.editingTodo = null;
+        this.originalTodo = null;
+        return;
+      }
+
+      if (this.editingTodo.text !== this.originalTodo.text) {
+        try {
+          const res = await fetch(`/api/todos/${this.editingTodo.id}`, {
+            method: 'PATCH',
+            headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({ text: trimmedText })
+          });
+          const updatedTodo = await res.json();
+          const index = this.todos.findIndex(t => t.id === updatedTodo.id);
+          if (index !== -1) this.todos[index] = updatedTodo;
+        } catch (error) {
+          console.error('Error saving todo:', error);
+        }
+      }
+      
+      this.editingTodo = null;
+      this.originalTodo = null;
+    },
+
+    cancelEdit() {
+      if (this.editingTodo && this.originalTodo) {
+        const index = this.todos.findIndex(t => t.id === this.editingTodo.id);
+        if (index !== -1) {
+          this.todos[index] = { ...this.originalTodo };
+        }
+      }
+      this.editingTodo = null;
+      this.originalTodo = null;
+    }
+  }
+}
+
+createApp({ TodoApp }).mount();
+</script>
+
+</body>
+</html>
